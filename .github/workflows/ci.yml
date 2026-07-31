@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Sync base environment
+        run: uv sync --locked
+      - name: Compile package and scripts
+        run: uv run python -m compileall drift_sentry scripts tests
+      - name: Run unit tests
+        run: uv run python -m unittest discover -s tests -v
+      - name: Build source and wheel distributions
+        run: uv build

@@ -1,0 +1,9 @@
+.venv/
+artifacts/
+/data/
+build/
+dist/
+*.egg-info/
+__pycache__/
+*.py[cod]
+.DS_Store

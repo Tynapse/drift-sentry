@@ -1,0 +1,46 @@
+schema_version: judge-sft.config.v1
+task: sft_training
+name: drift_sentry_4b_v1_lora
+model:
+  base_model: Qwen/Qwen3.5-4B
+  revision: 851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a
+  adapter_path: null
+  trust_remote_code: true
+  load_in_4bit: false
+  bf16: true
+  device_map: auto
+data:
+  train_file: data/train.jsonl
+  val_file: data/val.jsonl
+  max_seq_length: 4096
+lora:
+  r: 32
+  alpha: 64
+  dropout: 0.05
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+training:
+  output_dir: artifacts/drift-sentry-4b-v1-lora
+  resume_from_checkpoint: null
+  epochs: 1
+  batch_size: 16
+  eval_batch_size: 16
+  gradient_accumulation_steps: 1
+  learning_rate: 0.00002
+  warmup_ratio: 0.03
+  weight_decay: 0.01
+  logging_steps: 10
+  eval_steps: 500
+  save_steps: 500
+  save_total_limit: 5
+  seed: 20260526
+  report_to: none
+  gradient_checkpointing: true
+  merge: false
+  ddp_find_unused_parameters: false
