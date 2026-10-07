@@ -43,6 +43,19 @@ class PublicBenchmarkSanitizerTest(unittest.TestCase):
         self.assertEqual(FINALIZER.find_pii("sk-" + "abcdefghijklmnop"), "secret_token")
         self.assertEqual(FINALIZER.find_pii("sk-" + "abcdefghijklmno-"), "secret_token")
 
+    def test_finalizer_requires_matching_teacher_tier(self) -> None:
+        for teacher_fields in ({"teacher_tier": "reward"}, {}, {"teacher_tier": ""}, {"teacher_tier": "goal"}):
+            with self.subTest(teacher_fields=teacher_fields):
+                row = {
+                    "messages": [{"role": "assistant", "content": '{"tier": "reward"}'}],
+                    "metadata": {"target_tier": "reward", **teacher_fields},
+                }
+                if teacher_fields.get("teacher_tier") == "reward":
+                    self.assertEqual(FINALIZER.strict_tier(row), "reward")
+                else:
+                    with self.assertRaisesRegex(ValueError, "tier mismatch"):
+                        FINALIZER.strict_tier(row)
+
     def test_transform_normalizes_public_provenance(self) -> None:
         row = {
             "messages": [{"role": "user", "content": "safe text"}],

@@ -11,16 +11,6 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-import torch
-from sklearn.metrics import classification_report, f1_score, precision_recall_fscore_support
-from transformers import AutoModelForCausalLM, AutoTokenizer
-
-try:
-    from peft import PeftModel
-except ModuleNotFoundError:  # pragma: no cover
-    PeftModel = None  # type: ignore[assignment]
-
-
 TIERS = ["goal", "reasoning", "environment", "integration", "memory", "reward", "normal"]
 RISK_TIERS = [tier for tier in TIERS if tier != "normal"]
 HIGH_RISK_TIERS = {"memory", "reward"}
@@ -31,6 +21,9 @@ def main() -> int:
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     rows = load_rows(Path(args.data_file), args.max_samples)
+
+    import torch
+    from transformers import AutoModelForCausalLM, AutoTokenizer
 
     tokenizer = AutoTokenizer.from_pretrained(
         args.model,
@@ -49,8 +42,10 @@ def main() -> int:
         trust_remote_code=args.trust_remote_code,
     )
     if args.adapter:
-        if PeftModel is None:
-            raise SystemExit("peft is required when --adapter is set")
+        try:
+            from peft import PeftModel
+        except ModuleNotFoundError as exc:
+            raise SystemExit("peft is required when --adapter is set") from exc
         model = PeftModel.from_pretrained(model, args.adapter)
     model.eval()
 
@@ -105,12 +100,17 @@ def load_rows(path: Path, max_samples: int) -> list[dict[str, Any]]:
             if not line.strip():
                 continue
             row = json.loads(line)
-            assistant = row["messages"][-1]
+            messages = row.get("messages")
+            if not isinstance(messages, list) or not messages:
+                raise ValueError(f"missing messages for {row.get('id')}")
+            assistant = messages[-1]
+            if not isinstance(assistant, dict) or assistant.get("role") != "assistant":
+                raise ValueError(f"missing assistant gold for {row.get('id')}")
             gold_payload = parse_jsonish(assistant["content"])
-            gold = normalize_tier(gold_payload.get("tier") or row.get("metadata", {}).get("target_tier"))
+            gold = normalize_tier(gold_payload.get("tier"))
             if gold not in TIERS:
                 raise ValueError(f"invalid gold tier for {row.get('id')}: {gold!r}")
-            rows.append({"id": row.get("id", ""), "messages": row["messages"][:-1], "gold_tier": gold})
+            rows.append({"id": row.get("id", ""), "messages": messages[:-1], "gold_tier": gold})
             if max_samples and len(rows) >= max_samples:
                 break
     return rows
@@ -126,6 +126,8 @@ def evaluate(
     max_input_tokens: int,
     max_new_tokens: int,
 ) -> dict[str, Any]:
+    import torch
+
     golds: list[str] = []
     preds: list[str] = []
     batch_elapsed: list[float] = []
@@ -178,6 +180,8 @@ def evaluate(
 
 
 def compute_metrics(golds: list[str], preds: list[str], batch_elapsed: list[float], batch_size: int) -> dict[str, Any]:
+    from sklearn.metrics import classification_report, f1_score, precision_recall_fscore_support
+
     labels_with_unknown = TIERS + ["unknown"]
     confusion = {gold: {pred: 0 for pred in labels_with_unknown} for gold in TIERS}
     for gold, pred in zip(golds, preds, strict=True):

@@ -26,7 +26,7 @@ No credential is embedded in the repository. Generation and OpenAI-compatible ev
 
 ## Generate semantic data
 
-The generator accepts one or more OpenAI-compatible endpoints. `--strict-target-tier` rejects missing or mismatched teacher labels instead of overwriting them.
+The generator accepts one or more OpenAI-compatible endpoints. Missing, invalid, or mismatched teacher labels trigger a new example generation; labels are never replaced with the target tier. With the default `--case-retries 2`, a case gets at most three attempts before it is excluded and recorded in `failures.jsonl`. The old `--strict-target-tier` flag remains accepted for compatibility.
 
 ```bash
 export VLLM_API_KEY=replace-with-local-serving-key
@@ -39,8 +39,7 @@ uv run python scripts/generate_semantic_synthetic_6tier.py \
   --model teacher-model \
   --concurrency 32 \
   --max-tokens 1536 \
-  --case-retries 2 \
-  --strict-target-tier
+  --case-retries 2
 ```
 
 ## Train a LoRA judge
