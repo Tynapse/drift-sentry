@@ -235,7 +235,7 @@ def strict_tier(row: dict[str, Any]) -> str:
     tier = str(payload.get("tier") or "").strip().lower()
     metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
     target = str(metadata.get("target_tier") or "").strip().lower()
-    teacher = str(metadata.get("teacher_tier") or tier).strip().lower()
+    teacher = str(metadata.get("teacher_tier") or "").strip().lower()
     if tier not in TIERS or target != tier or teacher != tier:
         raise ValueError("tier mismatch")
     return tier

@@ -388,7 +388,6 @@ def main() -> int:
                     response_format_json=not args.no_response_format,
                     case_retries=args.case_retries,
                     labels=labels,
-                    strict_target_tier=args.strict_target_tier,
                     include_private_metadata=not args.public_records,
                 )
             )
@@ -457,7 +456,7 @@ def main() -> int:
         "taxonomy_path": str(args.taxonomy),
         "catalog_path": str(catalog_path),
         "selected_tiers": selected_tiers,
-        "strict_target_tier": args.strict_target_tier,
+        "strict_target_tier": True,
         "public_records": args.public_records,
         "max_failure_rate": args.max_failure_rate,
     }
@@ -479,7 +478,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--concurrency", type=int, default=32)
     parser.add_argument("--timeout", type=float, default=240.0)
     parser.add_argument("--max-retries", type=int, default=3)
-    parser.add_argument("--case-retries", type=int, default=2, help="Retry malformed teacher JSON/case outputs.")
+    parser.add_argument("--case-retries", type=int, default=2, help="Regenerate invalid cases or mismatched teacher labels.")
     parser.add_argument("--max-tokens", type=int, default=1536)
     parser.add_argument("--temperature", type=float, default=0.75)
     parser.add_argument("--enable-thinking", action="store_true", help="Allow Qwen thinking mode. Default disables it.")
@@ -505,7 +504,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--strict-target-tier",
         action="store_true",
-        help="Reject and retry responses whose explicit teacher tier is missing, invalid, or differs from the target.",
+        help="Accepted for compatibility; target-tier validation is always enabled.",
     )
     parser.add_argument(
         "--public-records",
@@ -676,11 +675,9 @@ def generate_one(
     response_format_json: bool,
     case_retries: int,
     labels: list[str],
-    strict_target_tier: bool,
     include_private_metadata: bool,
 ) -> dict[str, Any]:
     archetype = target["archetype"]
-    rng = random.Random(target["seed"])
     domain = DOMAINS[archetype["domain"]]
     generation_messages = [
         {"role": "system", "content": GEN_SYSTEM_PROMPT},
@@ -711,8 +708,9 @@ def generate_one(
             retry_instruction = {
                 "role": "user",
                 "content": (
-                    "The previous response was malformed or incomplete. "
-                    "Return one complete JSON object only, with all required string fields and label."
+                    "The previous response was invalid or did not match the target tier. "
+                    "Generate a new trace that genuinely matches the requested tier, then label it. "
+                    "Do not change only the label. Return one complete JSON object with all required fields."
                 ),
             }
             attempt_messages = generation_messages + [retry_instruction]
@@ -733,8 +731,6 @@ def generate_one(
                 parse_json_object(raw_text),
                 target_tier=target["target_tier"],
                 labels=labels,
-                rng=rng,
-                strict_target_tier=strict_target_tier,
             )
             break
         except Exception as exc:  # noqa: BLE001
@@ -801,8 +797,6 @@ def normalize_case(
     *,
     target_tier: str,
     labels: list[str],
-    rng: random.Random,
-    strict_target_tier: bool = False,
 ) -> dict[str, Any]:
     case: dict[str, Any] = {}
     for field in CASE_FIELDS:
@@ -817,8 +811,6 @@ def normalize_case(
         label_raw,
         target_tier=target_tier,
         labels=labels,
-        rng=rng,
-        strict_target_tier=strict_target_tier,
     )
     case["label"] = label
     return case
@@ -829,18 +821,12 @@ def normalize_label(
     *,
     target_tier: str,
     labels: list[str],
-    rng: random.Random,
-    strict_target_tier: bool = False,
 ) -> dict[str, Any]:
-    raw_tier = str(raw.get("tier") or "").strip().lower()
-    if strict_target_tier:
-        if raw_tier not in labels:
-            raise ValueError(f"teacher tier missing or invalid: {raw_tier!r}")
-        if raw_tier != target_tier:
-            raise ValueError(f"teacher tier mismatch: target={target_tier} teacher={raw_tier}")
-    tier = raw_tier or target_tier
+    tier = str(raw.get("tier") or "").strip().lower()
     if tier not in labels:
-        tier = target_tier
+        raise ValueError(f"teacher tier missing or invalid: {tier!r}")
+    if tier != target_tier:
+        raise ValueError(f"teacher tier mismatch: target={target_tier} teacher={tier}")
     default = deterministic_label(tier)
     verdict = str(raw.get("verdict") or default["verdict"]).strip().upper()
     if verdict not in {"PASS", "BLOCK", "ESCALATE"}:
